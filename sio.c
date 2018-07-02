@@ -35,7 +35,7 @@
 #define RSCOM_PORT   "/dev/ttyUSB0"
 
 #define MAX_CMD                      16
-#define VERS                    "1.0.2"
+#define VERS                    "1.0.4"
 #define MAXSYSLOG_MESG_LEN          256
 
  char *optarg;
@@ -46,6 +46,7 @@ bool useSyslog = false;    /* use system log */
 int severity = LOG_INFO;   /* default severity */
 bool hexDump = false;      /* enable hex dump for received data */
 bool hexFlags = 0;
+bool modeQuiet = false;
 int crmode = 0;
 int cbaud = B9600;
 const char* crconf[] = { "\r", "\n", "\r\n" };
@@ -64,7 +65,7 @@ main(int argc, char *argv[])
   bool isTerminal = isatty(STDOUT_FILENO);
   bool isSingleCmd = false;
 
-  logg(LOG_INFO, "(*) Staring serial port protocol debugger %s. isTerm(%d)", VERS, isTerminal);
+
   if (isTerminal) {
     /* assume we have colors */
     hasColors = true;
@@ -75,7 +76,7 @@ main(int argc, char *argv[])
   memset(sdcommand, 0, sizeof(sdcommand));
   snprintf(sdevice, 255, "%s", RSCOM_PORT);
 
-  while ((opt = getopt(argc, argv, "vdp:b:c:l:xh")) != -1) {
+  while ((opt = getopt(argc, argv, "vdp:b:c:l:xhqs")) != -1) {
     switch (opt) {
       case 'x':
         hexDump = true;
@@ -87,6 +88,12 @@ main(int argc, char *argv[])
       case 'p':
         logg(LOG_INFO, "+ using serial device: %s", optarg);
         snprintf(sdevice, 255, "%s", optarg);
+        break;
+      case 'q':
+        modeQuiet = true;
+        break;
+      case 's':
+        useSyslog = true;
         break;
       case 'c':
         {
@@ -149,6 +156,7 @@ main(int argc, char *argv[])
     }
   }
 
+  logg(LOG_INFO, "(*) Staring serial port protocol debugger %s. isTerm(%d)", VERS, isTerminal);
   fd = setup_siobus(sdevice, cbaud);
 
   if (fd == -1) {
@@ -244,6 +252,8 @@ show_usage(const char *progname)
   fprintf(stdout, "%s(C) 2018 Krystian Baniak, Exios Consulting%s\nUsage: %s [opts] -p /dev/ttyPort\n", BOLD, COLOR_RESET, progname);
   fprintf(stdout, "[options]:\n");
   fprintf(stdout, "  -d -- enable a debug mode\n");
+  fprintf(stdout, "  -q -- enable a quiet mode\n");
+  fprintf(stdout, "  -s -- enable logging to system logs\n");
   fprintf(stdout, "  -x -- enable a hex dump of received payloads\n");
   fprintf(stdout, "  -v -- print version and exit\n");
   fprintf(stdout, "[options with parameters]\n");
@@ -288,7 +298,8 @@ logg(int ilev, char * mesg, ...)
   va_end(al);
 
   /* write to console */
-  fprintf(stderr, "%s: [%d] %s \n", wlogTime(stmp), ilev, buff);
+  if (!modeQuiet)
+    fprintf(stderr, "%s: [%d] %s \n", wlogTime(stmp), ilev, buff);
   /* write to syslog
    * LOG_LOCAL0 == 16
    */
