@@ -35,7 +35,7 @@
 #define RSCOM_PORT   "/dev/ttyUSB0"
 
 #define MAX_CMD                      16
-#define VERS                    "1.0.1"
+#define VERS                    "1.0.2"
 #define MAXSYSLOG_MESG_LEN          256
 
  char *optarg;
@@ -59,10 +59,12 @@ main(int argc, char *argv[])
   struct timeval tv;
   char buff[256];
   char sdevice[256];
+  char sdcommand[256];
   bool hasColors = false;
   bool isTerminal = isatty(STDOUT_FILENO);
+  bool isSingleCmd = false;
 
-  logg(LOG_INFO, "(*) Staring serial port protocol debugger %s. %d", VERS, isTerminal);
+  logg(LOG_INFO, "(*) Staring serial port protocol debugger %s. isTerm(%d)", VERS, isTerminal);
   if (isTerminal) {
     /* assume we have colors */
     hasColors = true;
@@ -70,9 +72,10 @@ main(int argc, char *argv[])
 
   /* opts */
   memset(sdevice, 0, sizeof(sdevice));
+  memset(sdcommand, 0, sizeof(sdcommand));
   snprintf(sdevice, 255, "%s", RSCOM_PORT);
 
-  while ((opt = getopt(argc, argv, "vdp:b:c:x")) != -1) {
+  while ((opt = getopt(argc, argv, "vdp:b:c:l:xh")) != -1) {
     switch (opt) {
       case 'x':
         hexDump = true;
@@ -84,6 +87,14 @@ main(int argc, char *argv[])
       case 'p':
         logg(LOG_INFO, "+ using serial device: %s", optarg);
         snprintf(sdevice, 255, "%s", optarg);
+        break;
+      case 'c':
+        {
+          if (optarg) {
+            snprintf(sdcommand, 255, "%s", optarg);
+            isSingleCmd = true;
+          }
+        }
         break;
       case 'b':
         {
@@ -113,7 +124,7 @@ main(int argc, char *argv[])
           logg(LOG_INFO, "+ using baud rate: B%d", (int) ubd);
         }
         break;
-      case 'c':
+      case 'l':
         {
           if (optarg) {
             if (strcmp(optarg, "cr") == 0) {
@@ -131,8 +142,9 @@ main(int argc, char *argv[])
       case 'v':
         logg(LOG_INFO, "* serial port debugger %s\n(C) Krystian Baniak 2018", VERS);
         exit(EXIT_SUCCESS);
+      case 'h':
       default: /* '?' */
-        fprintf(stderr, "Usage: %s -dv -p port\n", argv[0]);
+        show_usage(argv[0]);
         exit(EXIT_FAILURE);
     }
   }
@@ -147,6 +159,10 @@ main(int argc, char *argv[])
   /* if we are used in a batch mode we signal that we are ready */
   fprintf(stdout, "READY\n");
   fflush(stdout);
+
+  if (isSingleCmd) {
+    dprintf(fd,"%s%s", sdcommand, crconf[crmode]);
+  }
 
   /* main loop */
   for (;;) {
@@ -185,10 +201,12 @@ main(int argc, char *argv[])
         if (strncmp(buff,"quit", 4)==0){
           logg(LOG_INFO, "quiting on a user request\n");
           goto __finally;
-        } else if (strncmp(buff, ".acode on",9)==0) {
+        } else if (strncmp(buff, ".acode on\n",255)==0) {
           hexFlags |= SIO_ASCII_SPECIAL;
-        } else if (strncmp(buff, ".acode off",10)==0) {
+        } else if (strncmp(buff, ".acode off\n",255)==0) {
           hexFlags &= ~SIO_ASCII_SPECIAL;
+        } else if (strncmp(buff, ".gs\n", 255)==0) {
+          dprintf(fd,"%s%s", "at!gstatus?", crconf[crmode]);
         } else {
           buff[ii-1] = 0x00;
           dprintf(fd,"%s%s", buff, crconf[crmode]);
@@ -206,6 +224,9 @@ main(int argc, char *argv[])
         } else {
           printf("%s", buff);
         }
+        if (isSingleCmd && strncmp(buff + (ii-4),"OK", 2)==0) {
+          goto __finally;
+        }
       }
     }
 
@@ -214,6 +235,21 @@ main(int argc, char *argv[])
 __finally:
   close(fd);
   exit(EXIT_SUCCESS);
+}
+
+/* help instructions */
+void
+show_usage(const char *progname)
+{
+  fprintf(stdout, "%s(C) 2018 Krystian Baniak, Exios Consulting%s\nUsage: %s [opts] -p /dev/ttyPort\n", BOLD, COLOR_RESET, progname);
+  fprintf(stdout, "[options]:\n");
+  fprintf(stdout, "  -d -- enable a debug mode\n");
+  fprintf(stdout, "  -x -- enable a hex dump of received payloads\n");
+  fprintf(stdout, "  -v -- print version and exit\n");
+  fprintf(stdout, "[options with parameters]\n");
+  fprintf(stdout, "  -b 9600|19200|38400|57600 -- baud rate\n");
+  fprintf(stdout, "  -l cr|lf|crlf             -- configure default line endiing\n");
+  fprintf(stdout, "  -c [command]              -- execute AT command or a macro\n");
 }
 
 /* delay seconds using float input */
